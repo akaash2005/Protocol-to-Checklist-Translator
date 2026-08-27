@@ -4,7 +4,7 @@ Turns an unstructured clinical protocol (written by a doctor, nutritionist, or s
 structured, step-by-step session plan and a QA rubric, so a newly hired coach in any city can execute
 it consistently, without the doctor in the room.
 
-Status: Phase 2 of 5 (validation layer). See the build plan below as later phases land.
+Status: Phase 3 of 5 (rendering layer). See the build plan below as later phases land.
 
 ## Phase 1 -- core structuring pipeline
 
@@ -46,8 +46,21 @@ output and asserts the validator flags it.
 python -m pytest
 ```
 
+## Phase 3 -- rendering layer
+
+[src/render.py](src/render.py) turns the same structured JSON into two markdown documents from a
+single source of truth: a coach-facing session plan (steps + what to watch for) and a
+coordinator-facing QA checklist (the `qa_rubric` as checkboxes, plus an escalation-criteria audit
+table pulled from `monitoring`).
+
+```bash
+python -m src.cli samples/01_post_op_knee.txt --render          # print both to stdout
+python -m src.cli samples/01_post_op_knee.txt --out-dir out/    # write out/01_post_op_knee_{coach,qa}.md
+```
+
+[tests/test_render.py](tests/test_render.py) checks both renderers against a hand-built fixture.
+
 ## Planned phases
 
-- Phase 3 -- rendering layer: coach-facing session plan + coordinator-facing QA checklist.
 - Phase 4 -- minimal FastAPI + single-page web wrapper.
 - Phase 5 -- README polish tying this back to Praan Health's stated need.

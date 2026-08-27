@@ -11,6 +11,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from .render import render_coach_plan, render_qa_checklist
 from .structure import structure_protocol
 from .validate import validate_escalation_coverage
 
@@ -25,6 +26,17 @@ def main() -> None:
     parser.add_argument(
         "--model", default=None, help="Override the Claude model (default: env CLAUDE_MODEL or claude-sonnet-5)"
     )
+    parser.add_argument(
+        "--render",
+        action="store_true",
+        help="Also print the coach-facing session plan and coordinator-facing QA checklist as markdown",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="Write <name>_coach.md and <name>_qa.md into this directory instead of printing them",
+    )
     args = parser.parse_args()
 
     protocol_text = args.protocol_file.read_text(encoding="utf-8")
@@ -36,6 +48,22 @@ def main() -> None:
         print(f"\n[validation] {len(issues)} possible dropped escalation criteria:", file=sys.stderr)
         for issue in issues:
             print(f"  - {issue}", file=sys.stderr)
+
+    if args.render or args.out_dir:
+        coach_md = render_coach_plan(result)
+        qa_md = render_qa_checklist(result)
+
+        if args.out_dir:
+            args.out_dir.mkdir(parents=True, exist_ok=True)
+            stem = args.protocol_file.stem
+            (args.out_dir / f"{stem}_coach.md").write_text(coach_md, encoding="utf-8")
+            (args.out_dir / f"{stem}_qa.md").write_text(qa_md, encoding="utf-8")
+            print(f"\nWrote {stem}_coach.md and {stem}_qa.md to {args.out_dir}", file=sys.stderr)
+        else:
+            print("\n\n---- COACH SESSION PLAN ----\n")
+            print(coach_md)
+            print("\n---- COORDINATOR QA CHECKLIST ----\n")
+            print(qa_md)
 
 
 if __name__ == "__main__":
