@@ -1,0 +1,14 @@
+Type 2 diabetes management, newly enrolled member, BMI 31.
+
+Nutrition: carbohydrate intake capped at 45g per meal, 3 meals + 1 snack per day, no more than 15g
+added sugar daily.
+
+Walking 30 minutes at moderate pace, 5 days a week, can be split into two 15-minute sessions.
+Resistance training twice weekly, full body, moderate intensity, avoid to-failure sets.
+
+Check blood glucose before and after exercise sessions -- if pre-exercise reading is below 100 mg/dL,
+give a 15g carb snack before starting; if above 250 mg/dL, skip exercise that session and notify care
+coordinator. Any reading below 70 mg/dL or above 300 mg/dL at any time should be escalated to the
+physician immediately.
+
+HbA1c re-check at 12 weeks. Weight check-in weekly.
