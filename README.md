@@ -67,7 +67,7 @@ python -m pytest
 protocol text
       |
       v
-[structure.py]   Claude API, schema-constrained (client.messages.parse + Pydantic schema)
+[structure.py]   schema-constrained LLM call (Claude, or a local model via Ollama -- see below)
       |
       v
 [validate.py]    every escalation phrase in the input must appear in the output monitoring section
@@ -81,9 +81,32 @@ protocol text
 
 ## Running it
 
+Two interchangeable LLM providers, selected by `LLM_PROVIDER` in `.env` -- [src/structure.py](src/structure.py)
+routes between them, everything downstream (`validate.py`, `render.py`, the CLI, the web UI) is
+identical either way.
+
 ```bash
 pip install -r requirements.txt
-cp .env.example .env   # fill in ANTHROPIC_API_KEY
+cp .env.example .env
+```
+
+**Option A -- Ollama (local, free, no API key):**
+
+```bash
+# install from https://ollama.com/download, then:
+ollama pull llama3.1
+# .env: LLM_PROVIDER=ollama   (this is the default in .env.example)
+```
+
+Structured output is enforced via Ollama's schema-constrained `format` parameter
+([src/schema.py](src/schema.py) `ollama_json_schema()`), the local equivalent of Claude's
+`client.messages.parse`. Quality is lower than Claude on the same prompt -- expect this path to
+need more scrutiny of its output, which is exactly what the validation layer is there to catch.
+
+**Option B -- Anthropic Claude API:**
+
+```bash
+# .env: LLM_PROVIDER=anthropic, ANTHROPIC_API_KEY=...
 ```
 
 **CLI:**
@@ -122,7 +145,7 @@ This is a credible prototype, not a production system -- scope was kept tight on
 ```
 src/
   schema.py     structured output schema (Pydantic) shared by every layer
-  structure.py  protocol text -> ProtocolOutput, via a schema-constrained Claude call
+  structure.py  protocol text -> ProtocolOutput, via a schema-constrained call to Claude or Ollama
   validate.py   escalation-coverage cross-check (source text vs. structured output)
   render.py     ProtocolOutput -> coach markdown + QA markdown
   cli.py        CLI entrypoint

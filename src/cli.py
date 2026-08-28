@@ -24,7 +24,12 @@ def main() -> None:
     )
     parser.add_argument("protocol_file", type=Path, help="Path to a plain-text protocol file")
     parser.add_argument(
-        "--model", default=None, help="Override the Claude model (default: env CLAUDE_MODEL or claude-sonnet-5)"
+        "--model",
+        default=None,
+        help=(
+            "Override the model for the active LLM_PROVIDER (default: env CLAUDE_MODEL / "
+            "OLLAMA_MODEL, see .env.example)"
+        ),
     )
     parser.add_argument(
         "--render",

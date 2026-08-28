@@ -41,3 +41,56 @@ class SessionPlan(BaseModel):
 class ProtocolOutput(BaseModel):
     session_plan: SessionPlan
     qa_rubric: List[str]
+
+
+def ollama_json_schema() -> dict:
+    """A flat JSON schema (no $ref/$defs) mirroring ProtocolOutput, for Ollama's structured-output
+    `format` parameter. Ollama's constrained decoding is built on llama.cpp's JSON-schema-to-grammar
+    converter, which is most reliable against an inlined schema -- so this is written out by hand
+    rather than derived from ProtocolOutput.model_json_schema() (which uses $defs/$ref). Every field
+    is listed in `required` with a nullable type, matching how strict-schema modes represent an
+    optional field: present, value nullable.
+    """
+    session_step = {
+        "type": "object",
+        "properties": {
+            "step": {"type": "integer"},
+            "activity": {"type": "string"},
+            "constraints": {"type": ["string", "null"]},
+            "duration_min": {"type": ["integer", "null"]},
+            "frequency": {"type": ["string", "null"]},
+            "target": {"type": ["string", "null"]},
+        },
+        "required": ["step", "activity", "constraints", "duration_min", "frequency", "target"],
+        "additionalProperties": False,
+    }
+    monitoring_item = {
+        "type": "object",
+        "properties": {
+            "metric": {"type": "string"},
+            "threshold": {"type": ["string", "null"]},
+            "action": {"type": ["string", "null"]},
+            "action_if_present": {"type": ["string", "null"]},
+        },
+        "required": ["metric", "threshold", "action", "action_if_present"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {
+            "session_plan": {
+                "type": "object",
+                "properties": {
+                    "week": {"type": ["integer", "null"]},
+                    "condition": {"type": "string"},
+                    "steps": {"type": "array", "items": session_step},
+                    "monitoring": {"type": "array", "items": monitoring_item},
+                },
+                "required": ["week", "condition", "steps", "monitoring"],
+                "additionalProperties": False,
+            },
+            "qa_rubric": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["session_plan", "qa_rubric"],
+        "additionalProperties": False,
+    }
