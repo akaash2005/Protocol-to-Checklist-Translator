@@ -1,80 +1,133 @@
 # Protocol-to-Checklist Translator
 
-Turns an unstructured clinical protocol (written by a doctor, nutritionist, or strength coach) into a
-structured, step-by-step session plan and a QA rubric, so a newly hired coach in any city can execute
-it consistently, without the doctor in the room.
+A doctor writes a protocol in plain language. A coach in a different city has to execute it
+identically, every session, without the doctor in the room. This tool closes that gap: paste an
+unstructured clinical protocol in, get a coach-facing session plan and a coordinator-facing QA
+checklist out -- generated from the same structured source, with a built-in safety check that
+catches an LLM silently dropping a red-flag instruction.
 
-Status: Phase 4 of 5 (minimal web wrapper). See the build plan below as later phases land.
+## Why this exists
 
-## Phase 1 -- core structuring pipeline
+Praan Health runs physician-led chronic care programs across 25+ conditions, delivered by a
+distributed team of doctors, nutritionists, strength coaches, and care coordinators in multiple
+cities. Praan's own job posting names this exact translation problem:
 
-A CLI that takes a protocol text file in and prints structured JSON out, via a schema-constrained call
-to the Claude API (`client.messages.parse` with a Pydantic output schema in [src/schema.py](src/schema.py)).
+> "Work closely with doctors, nutritionists, and strength coaches to translate clinical protocols
+> into simple, intuitive software experiences."
 
-### Setup
+The bottleneck isn't writing a good protocol -- it's making sure every coach, in every city,
+executes that protocol consistently. Today that translation from "doctor's clinical notes" to
+"what the coach actually does in a session" is presumably manual and doesn't scale as the team
+hires more coaches. This is a working prototype of the tool that would close that gap.
 
-```bash
-pip install -r requirements.txt
-cp .env.example .env   # then fill in ANTHROPIC_API_KEY
+## Example
+
+**Input** (unstructured protocol text):
+
+```
+Post-op right total knee replacement, week 3 post-surgery. Light resistance band work only,
+2 sets of 12 reps, no more than 20 minutes. Avoid full weight-bearing lunges and deep squats
+past 90 degrees until week 6. Watch for joint swelling or pain above 4/10 -- if present, stop
+the session and escalate to the physician same day. Protein target 1.2g/kg bodyweight. Reassess
+range of motion weekly.
 ```
 
-### Run
+**Output**: a structured JSON session plan + QA rubric ([src/schema.py](src/schema.py)), rendered
+into two documents from that single source of truth ([src/render.py](src/render.py)):
 
-```bash
-python -m src.cli samples/01_post_op_knee.txt
-```
+- **Coach session plan** -- steps, durations, constraints, and what to watch for.
+- **Coordinator QA checklist** -- a yes/no checklist per constraint, target, and monitoring item,
+  plus an explicit escalation-criteria audit table.
 
-Four hand-written sample protocols live in [samples/](samples/), covering post-op orthopedic recovery,
-diabetes management, hypertension/lifestyle, and post-MI cardiac rehab -- different enough to exercise
-the structuring prompt beyond a single condition.
+Try it against four hand-written sample protocols in [samples/](samples/) -- post-op orthopedic
+recovery, diabetes management, hypertension/lifestyle, and post-MI cardiac rehab -- chosen to be
+different enough that the prompt has to generalize, not pattern-match one example.
 
-## Phase 2 -- validation layer
+## The validation layer -- why it's not optional
 
-For a healthcare-adjacent tool, an LLM silently dropping an escalation criterion (e.g. "escalate to
-physician if pain > 4/10") is a safety issue, not a formatting bug. [src/validate.py](src/validate.py)
-keyword-matches every escalation / red-flag sentence in the source protocol and checks that it's
-reflected somewhere in the structured `monitoring` section of the output; anything that isn't gets
-flagged. This runs entirely offline (no LLM call), so it's fast and independently testable.
+For a healthcare-adjacent tool, an LLM silently dropping an instruction like "escalate to
+physician if pain > 4/10" isn't a formatting bug, it's a safety issue. So structuring the protocol
+isn't the last step -- [src/validate.py](src/validate.py) keyword-matches every escalation /
+red-flag sentence in the *source* protocol text and checks that it's reflected somewhere in the
+structured `monitoring` output. Anything the LLM dropped gets flagged, in the CLI and in the web
+UI, before it ever reaches a coach.
 
-The CLI now runs this check automatically after structuring and prints any flagged criteria to stderr.
-
-[tests/test_validate.py](tests/test_validate.py) proves the check actually catches something: one test
-asserts a complete output passes, the other deliberately strips the escalation entries out of the same
-output and asserts the validator flags it.
+This check runs entirely offline (no LLM call, no network) and is proven with a deliberately
+broken test case, not just a happy path: [tests/test_validate.py](tests/test_validate.py) builds
+one correct output and asserts the validator passes it, then strips the escalation entries out of
+the *same* output and asserts the validator catches it.
 
 ```bash
 python -m pytest
 ```
 
-## Phase 3 -- rendering layer
+## Architecture
 
-[src/render.py](src/render.py) turns the same structured JSON into two markdown documents from a
-single source of truth: a coach-facing session plan (steps + what to watch for) and a
-coordinator-facing QA checklist (the `qa_rubric` as checkboxes, plus an escalation-criteria audit
-table pulled from `monitoring`).
-
-```bash
-python -m src.cli samples/01_post_op_knee.txt --render          # print both to stdout
-python -m src.cli samples/01_post_op_knee.txt --out-dir out/    # write out/01_post_op_knee_{coach,qa}.md
+```
+protocol text
+      |
+      v
+[structure.py]   Claude API, schema-constrained (client.messages.parse + Pydantic schema)
+      |
+      v
+[validate.py]    every escalation phrase in the input must appear in the output monitoring section
+      |
+      v
+[render.py]      same JSON -> coach session plan (markdown) + coordinator QA checklist (markdown)
+      |
+      +--> src/cli.py   (CLI: file in, JSON/markdown out)
+      +--> api/main.py  (FastAPI: paste text in a browser, see both outputs + warnings)
 ```
 
-[tests/test_render.py](tests/test_render.py) checks both renderers against a hand-built fixture.
+## Running it
 
-## Phase 4 -- minimal web wrapper
+```bash
+pip install -r requirements.txt
+cp .env.example .env   # fill in ANTHROPIC_API_KEY
+```
 
-A FastAPI backend ([api/main.py](api/main.py)) exposes the Phase 1-3 pipeline over HTTP, and a
-single, dependency-free HTML page ([web/index.html](web/index.html)) lets you paste protocol text
-(or load one of the 4 bundled samples) and see both rendered outputs side by side, along with any
-validation warnings.
+**CLI:**
+
+```bash
+python -m src.cli samples/01_post_op_knee.txt                   # structured JSON to stdout
+python -m src.cli samples/01_post_op_knee.txt --render          # + both markdown docs to stdout
+python -m src.cli samples/01_post_op_knee.txt --out-dir out/    # + write markdown files
+```
+
+**Web:**
 
 ```bash
 uvicorn api.main:app --reload
-# open http://127.0.0.1:8000
+# open http://127.0.0.1:8000, load a sample or paste your own protocol text
 ```
 
-Endpoints: `GET /` (the page), `GET /samples` (bundled sample protocols), `POST /structure`
-(`{"protocol_text": "..."}` -> structured plan + both markdown renders + validation warnings).
+**Tests:**
 
-## Planned phases
+```bash
+python -m pytest
+```
 
-- Phase 5 -- README polish tying this back to Praan Health's stated need.
+## What this deliberately doesn't do
+
+This is a credible prototype, not a production system -- scope was kept tight on purpose:
+
+- No auth, no database, no multi-tenant support -- it's stateless by design.
+- No attempt to handle every possible protocol format -- 4 realistic, well-chosen samples beat
+  infinite edge cases for proving the approach generalizes.
+- No visual design polish on the web UI -- plain and functional, so the time went into the
+  structuring prompt and the validation layer instead.
+
+## Project structure
+
+```
+src/
+  schema.py     structured output schema (Pydantic) shared by every layer
+  structure.py  protocol text -> ProtocolOutput, via a schema-constrained Claude call
+  validate.py   escalation-coverage cross-check (source text vs. structured output)
+  render.py     ProtocolOutput -> coach markdown + QA markdown
+  cli.py        CLI entrypoint
+api/main.py     FastAPI wrapper (GET /, GET /samples, POST /structure)
+web/index.html  single-page frontend, no build step, no external dependencies
+samples/        4 hand-written sample protocols
+tests/          validation + rendering tests, including a deliberately-triggered failure case
+```
