@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Protocol-to-Checklist Translator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --panel: #ffffff;
+    --border: #ddd6cc;
+    --text: #2b2a26;
+    --muted: #6b6a63;
+    --accent: #1f6f54;
+    --warn-bg: #fff4e5;
+    --warn-border: #e3a33c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    padding: 1.5rem 2rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  header h1 { margin: 0 0 0.25rem; font-size: 1.4rem; }
+  header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 1.5rem 2rem 3rem;
+    display: grid;
+    gap: 1.5rem;
+  }
+  .input-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+  }
+  .input-row { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; }
+  select, button {
+    font-size: 0.9rem;
+    padding: 0.45rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: white;
+  }
+  button.primary {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button.primary:disabled { opacity: 0.6; cursor: default; }
+  textarea {
+    width: 100%;
+    min-height: 220px;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.9rem;
+    padding: 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    resize: vertical;
+  }
+  .status { margin-top: 0.5rem; font-size: 0.9rem; color: var(--muted); min-height: 1.2em; }
+  .status.error { color: #b8452f; }
+  .outputs { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  @media (max-width: 800px) { .outputs { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    min-height: 200px;
+  }
+  .panel h2 { margin-top: 0; font-size: 1.05rem; }
+  .panel h1 { font-size: 1.15rem; margin: 0 0 0.5rem; }
+  .panel h3 { font-size: 1rem; margin: 1rem 0 0.25rem; }
+  .panel ul { padding-left: 1.3rem; margin: 0.4rem 0; }
+  .panel li { margin: 0.2rem 0; }
+  .placeholder { color: var(--muted); font-size: 0.9rem; }
+  .validation-panel {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    display: none;
+  }
+  .validation-panel.visible { display: block; }
+  .validation-panel h2 { margin: 0 0 0.5rem; font-size: 1rem; color: #8a5a12; }
+  .validation-panel ul { margin: 0; padding-left: 1.2rem; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Protocol-to-Checklist Translator</h1>
+  <p>Paste an unstructured clinical protocol and get a coach-facing session plan + a coordinator-facing QA checklist.</p>
+</header>
+
+<main>
+  <section class="input-panel">
+    <div class="input-row">
+      <label for="sample-select">Load a sample:</label>
+      <select id="sample-select">
+        <option value="">-- choose a sample protocol --</option>
+      </select>
+      <button id="structure-btn" class="primary">Structure Protocol</button>
+    </div>
+    <textarea id="protocol-input" placeholder="Paste protocol text here, e.g. &quot;Post-op knee replacement, week 3. Light resistance work only...&quot;"></textarea>
+    <div id="status" class="status"></div>
+  </section>
+
+  <section id="validation-panel" class="validation-panel">
+    <h2>Validation warnings</h2>
+    <ul id="validation-list"></ul>
+  </section>
+
+  <section class="outputs">
+    <div class="panel">
+      <h2>Coach session plan</h2>
+      <div id="coach-output"><p class="placeholder">Nothing structured yet.</p></div>
+    </div>
+    <div class="panel">
+      <h2>Coordinator QA checklist</h2>
+      <div id="qa-output"><p class="placeholder">Nothing structured yet.</p></div>
+    </div>
+  </section>
+</main>
+
+<script>
+  // Tiny dependency-free markdown -> HTML for the subset render.py actually emits
+  // (#/##/###, **bold**, "- [ ] text", "- text").
+  function renderMarkdown(md) {
+    const lines = md.split("\n");
+    let html = "";
+    let inList = false;
+    const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
+
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (line === "") { closeList(); continue; }
+
+      const heading = line.match(/^(#{1,3})\s+(.*)$/);
+      if (heading) {
+        closeList();
+        const level = heading[1].length;
+        html += `<h${level}>${inline(heading[2])}</h${level}>`;
+        continue;
+      }
+
+      const checkbox = line.match(/^-\s+\[ \]\s+(.*)$/);
+      const bullet = line.match(/^-\s+(.*)$/);
+      if (checkbox || bullet) {
+        if (!inList) { html += "<ul>"; inList = true; }
+        const text = checkbox ? checkbox[1] : bullet[1];
+        const prefix = checkbox ? "&#9744; " : "";
+        html += `<li>${prefix}${inline(text)}</li>`;
+        continue;
+      }
+
+      closeList();
+      html += `<p>${inline(line)}</p>`;
+    }
+    closeList();
+    return html;
+  }
+
+  function inline(text) {
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  }
+
+  const sampleSelect = document.getElementById("sample-select");
+  const protocolInput = document.getElementById("protocol-input");
+  const structureBtn = document.getElementById("structure-btn");
+  const statusEl = document.getElementById("status");
+  const coachOutput = document.getElementById("coach-output");
+  const qaOutput = document.getElementById("qa-output");
+  const validationPanel = document.getElementById("validation-panel");
+  const validationList = document.getElementById("validation-list");
+
+  let samples = {};
+
+  async function loadSamples() {
+    try {
+      const res = await fetch("/samples");
+      samples = await res.json();
+      for (const name of Object.keys(samples)) {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name.replace(/_/g, " ");
+        sampleSelect.appendChild(opt);
+      }
+    } catch (err) {
+      // Non-fatal -- the user can still paste text manually.
+    }
+  }
+
+  sampleSelect.addEventListener("change", () => {
+    if (sampleSelect.value) protocolInput.value = samples[sampleSelect.value];
+  });
+
+  structureBtn.addEventListener("click", async () => {
+    const text = protocolInput.value.trim();
+    if (!text) {
+      statusEl.textContent = "Paste or load a protocol first.";
+      statusEl.className = "status error";
+      return;
+    }
+
+    structureBtn.disabled = true;
+    statusEl.textContent = "Structuring...";
+    statusEl.className = "status";
+    validationPanel.classList.remove("visible");
+
+    try {
+      const res = await fetch("/structure", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ protocol_text: text }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.detail || `Request failed (${res.status})`);
+      }
+
+      coachOutput.innerHTML = renderMarkdown(data.coach_markdown);
+      qaOutput.innerHTML = renderMarkdown(data.qa_markdown);
+
+      if (data.validation_issues && data.validation_issues.length) {
+        validationList.innerHTML = data.validation_issues.map(i => `<li>${i}</li>`).join("");
+        validationPanel.classList.add("visible");
+      }
+
+      statusEl.textContent = "Done.";
+    } catch (err) {
+      statusEl.textContent = err.message;
+      statusEl.className = "status error";
+    } finally {
+      structureBtn.disabled = false;
+    }
+  });
+
+  loadSamples();
+</script>
+</body>
+</html>

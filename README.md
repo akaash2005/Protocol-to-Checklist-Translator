@@ -4,7 +4,7 @@ Turns an unstructured clinical protocol (written by a doctor, nutritionist, or s
 structured, step-by-step session plan and a QA rubric, so a newly hired coach in any city can execute
 it consistently, without the doctor in the room.
 
-Status: Phase 3 of 5 (rendering layer). See the build plan below as later phases land.
+Status: Phase 4 of 5 (minimal web wrapper). See the build plan below as later phases land.
 
 ## Phase 1 -- core structuring pipeline
 
@@ -60,7 +60,21 @@ python -m src.cli samples/01_post_op_knee.txt --out-dir out/    # write out/01_p
 
 [tests/test_render.py](tests/test_render.py) checks both renderers against a hand-built fixture.
 
+## Phase 4 -- minimal web wrapper
+
+A FastAPI backend ([api/main.py](api/main.py)) exposes the Phase 1-3 pipeline over HTTP, and a
+single, dependency-free HTML page ([web/index.html](web/index.html)) lets you paste protocol text
+(or load one of the 4 bundled samples) and see both rendered outputs side by side, along with any
+validation warnings.
+
+```bash
+uvicorn api.main:app --reload
+# open http://127.0.0.1:8000
+```
+
+Endpoints: `GET /` (the page), `GET /samples` (bundled sample protocols), `POST /structure`
+(`{"protocol_text": "..."}` -> structured plan + both markdown renders + validation warnings).
+
 ## Planned phases
 
-- Phase 4 -- minimal FastAPI + single-page web wrapper.
 - Phase 5 -- README polish tying this back to Praan Health's stated need.
